@@ -35,6 +35,12 @@ struct Cli {
     no_lines: bool,
     #[arg(long)]
     glob: Option<String>,
+    /// Emit output as JSON instead of text
+    #[arg(long)]
+    json: bool,
+    /// With --json: emit compact (single-line) JSON instead of pretty-printed
+    #[arg(long)]
+    compact: bool,
 }
 
 #[derive(Subcommand)]
@@ -45,6 +51,12 @@ enum Commands {
         symbol: String,
         #[arg(num_args = 0..)]
         others: Vec<String>,
+        /// Emit output as JSON instead of text
+        #[arg(long)]
+        json: bool,
+        /// With --json: emit compact (single-line) JSON
+        #[arg(long)]
+        compact: bool,
     },
     /// One-page module map
     Digest {
@@ -57,6 +69,12 @@ enum Commands {
         include_fields: bool,
         #[arg(long, default_value_t = 50)]
         max_members: usize,
+        /// Emit output as JSON instead of text
+        #[arg(long)]
+        json: bool,
+        /// With --json: emit compact (single-line) JSON
+        #[arg(long)]
+        compact: bool,
     },
     /// Find subclasses / implementations
     Implements {
@@ -66,6 +84,12 @@ enum Commands {
 
         #[arg(short, long)]
         direct: bool,
+        /// Emit output as JSON instead of text
+        #[arg(long)]
+        json: bool,
+        /// With --json: emit compact (single-line) JSON
+        #[arg(long)]
+        compact: bool,
     },
     /// Print the agent prompt snippet
     Prompt,
@@ -176,25 +200,38 @@ fn main() {
                 path,
                 symbol,
                 others,
+                json,
+                compact,
             } => {
                 if let Some(res) = parse_file(path) {
                     let mut symbols = vec![symbol.as_str()];
                     symbols.extend(others.iter().map(|s| s.as_str()));
-                    for sym in symbols {
-                        let matches = crate::core::find_symbols(&res, sym);
-                        for m in matches {
-                            println!(
-                                "# {}:{}-{} {} ({})",
-                                res.path.display(),
-                                m.start_line,
-                                m.end_line,
-                                m.qualified_name,
-                                m.kind
-                            );
-                            if !m.ancestor_signatures.is_empty() {
-                                println!("# in: {}", m.ancestor_signatures.join(" → "));
+                    if *json || cli.json {
+                        let mut all_matches = Vec::new();
+                        for sym in symbols {
+                            all_matches.extend(crate::core::find_symbols(&res, sym));
+                        }
+                        println!(
+                            "{}",
+                            crate::core::render_json_show(&res, &all_matches, !(*compact || cli.compact))
+                        );
+                    } else {
+                        for sym in symbols {
+                            let matches = crate::core::find_symbols(&res, sym);
+                            for m in matches {
+                                println!(
+                                    "# {}:{}-{} {} ({})",
+                                    res.path.display(),
+                                    m.start_line,
+                                    m.end_line,
+                                    m.qualified_name,
+                                    m.kind
+                                );
+                                if !m.ancestor_signatures.is_empty() {
+                                    println!("# in: {}", m.ancestor_signatures.join(" → "));
+                                }
+                                println!("{}", m.source);
                             }
-                            println!("{}", m.source);
                         }
                     }
                 }
@@ -204,40 +241,72 @@ fn main() {
                 include_private,
                 include_fields,
                 max_members,
+                json,
+                compact,
             } => {
                 let results = walk_and_parse(paths, None);
-                let opts = DigestOptions {
-                    include_private: *include_private,
-                    include_fields: *include_fields,
-                    max_members_per_type: *max_members,
-                    max_heading_depth: 3,
-                };
-                let root = if paths.len() == 1 && paths[0].is_dir() {
-                    Some(paths[0].as_path())
+                if *json || cli.json {
+                    let opts = OutlineOptions {
+                        include_private: *include_private,
+                        include_fields: *include_fields,
+                        include_xml_doc: true,
+                        include_attributes: true,
+                        include_line_numbers: true,
+                        max_doc_lines: 6,
+                    };
+                    println!(
+                        "{}",
+                        crate::core::render_json_outline(&results, &opts, !(*compact || cli.compact))
+                    );
                 } else {
-                    None
-                };
-                println!("{}", crate::core::render_digest(&results, &opts, root));
+                    let opts = DigestOptions {
+                        include_private: *include_private,
+                        include_fields: *include_fields,
+                        max_members_per_type: *max_members,
+                        max_heading_depth: 3,
+                    };
+                    let root = if paths.len() == 1 && paths[0].is_dir() {
+                        Some(paths[0].as_path())
+                    } else {
+                        None
+                    };
+                    println!("{}", crate::core::render_digest(&results, &opts, root));
+                }
             }
             Commands::Implements {
                 target,
                 paths,
                 direct,
+                json,
+                compact,
             } => {
                 let results = walk_and_parse(paths, None);
-                let matches = crate::core::find_implementations(&results, target, !direct);
-                println!(
-                    "# {} match(es) for '{}' (incl. transitive):",
-                    matches.len(),
-                    target
-                );
-                for m in matches {
-                    let via = if m.via.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" [via {}]", m.via.last().unwrap())
-                    };
-                    println!("{}:{}  {} {}{}", m.path, m.start_line, m.kind, m.name, via);
+                let transitive = !direct;
+                let matches = crate::core::find_implementations(&results, target, transitive);
+                if *json || cli.json {
+                    println!(
+                        "{}",
+                        crate::core::render_json_implements(
+                            target,
+                            &matches,
+                            transitive,
+                            !(*compact || cli.compact),
+                        )
+                    );
+                } else {
+                    println!(
+                        "# {} match(es) for '{}' (incl. transitive):",
+                        matches.len(),
+                        target
+                    );
+                    for m in matches {
+                        let via = if m.via.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" [via {}]", m.via.last().unwrap())
+                        };
+                        println!("{}:{}  {} {}{}", m.path, m.start_line, m.kind, m.name, via);
+                    }
                 }
             }
             Commands::Prompt => {
@@ -301,9 +370,13 @@ fn main() {
             include_line_numbers: !cli.no_lines,
             max_doc_lines: 6,
         };
-        for res in results {
-            println!("{}", crate::core::render_outline(&res, &opts));
-            println!("");
+        if cli.json {
+            println!("{}", crate::core::render_json_outline(&results, &opts, !cli.compact));
+        } else {
+            for res in results {
+                println!("{}", crate::core::render_outline(&res, &opts));
+                println!("");
+            }
         }
     } else {
         println!("Please provide a path or command.");

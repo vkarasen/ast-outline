@@ -137,6 +137,12 @@ ast-outline implements IDamageable src/
 
 # Output a prompt snippet to steer LLM agents
 ast-outline prompt >> AGENTS.md
+
+# Machine-readable JSON (stable schema, great for tooling)
+ast-outline src/player.rs --json
+ast-outline digest src/ --json
+ast-outline show Player.cs TakeDamage --json
+ast-outline implements IDamageable src/ --json
 ```
 
 ---
@@ -222,6 +228,57 @@ nested inside, without a second `outline` call:
 /// <summary>Apply damage.</summary>
 public void TakeDamage(int amount) { ... }
 ```
+
+---
+
+## JSON output
+
+Add `--json` to any command to get the full symbol graph as stable,
+structured JSON instead of formatted text — ideal for editors, language
+servers, CI tooling, or any script that needs to consume the data
+programmatically.
+
+```bash
+ast-outline src/player.rs --json            # per-file outline
+ast-outline digest src/ --json              # digest view
+ast-outline show Player.cs TakeDamage --json
+ast-outline implements IDamageable src/ --json
+ast-outline src/ --json --compact           # single-line (no pretty-print)
+```
+
+Every JSON document includes a `schema` field that is bumped on breaking
+changes, so downstream tooling can guard on it:
+
+```json
+{
+  "schema": "ast-outline.outline.v1",
+  "files": [
+    {
+      "path": "src/player.rs",
+      "language": "rust",
+      "line_count": 312,
+      "error_count": 0,
+      "declarations": [
+        {
+          "kind": "struct",
+          "name": "Player",
+          "signature": "pub struct Player",
+          "visibility": "pub",
+          "start_line": 10,
+          "end_line": 40,
+          "children": [ ... ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+| Schema | Command |
+|--------|----------|
+| `ast-outline.outline.v1` | default outline, `digest --json` |
+| `ast-outline.show.v1` | `show --json` |
+| `ast-outline.implements.v1` | `implements --json` |
 
 ---
 

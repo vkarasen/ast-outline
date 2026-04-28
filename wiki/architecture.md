@@ -14,6 +14,7 @@ It is written natively in Rust, relying heavily on the [tree-sitter](https://tre
    - `digest` squashes the tree into a concise module-level API map.
    - `show` walks the tree for a specific suffix match and extracts the raw string boundaries.
    - `implements` performs a generic Breadth-First-Search across the IR trees of the entire repository to find inheritance hierarchies.
+   - `--json` is a fifth rendering mode: any of the above commands accepts `--json` to serialise the same `Declaration` IR directly via `serde_json` into a versioned JSON schema, instead of formatting it as text. Add `--compact` for single-line output.
 
 ## Adding a New Language
 
